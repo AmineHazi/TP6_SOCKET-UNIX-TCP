@@ -1,4 +1,4 @@
-# TP N°5 Socket UNIX non connecté
+# TP N°6 Socket UNIX connecté
 
 Ce petit programme est une application légère de communication en C utilisant des sockets UNIX pour établir une communication bidirectionnelle entre un serveur et un client. Le serveur traite chaque client dans un thread distinct, permettant une gestion efficace de multiples clients simultanément, et sauvegarde les interactions dans des logs.
 
