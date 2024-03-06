@@ -22,6 +22,11 @@
 #define MAX_NUM_RAND 1000
 #define BACKLOG 10
 
+typedef struct ClientNode {
+    int socket;
+    struct ClientNode *next;
+} ClientNode;
+
 void create_log_file_path();
 void log_message_with_client_info(const char* prefix, int client_sock, int message);
 void log_message(const char* message);
@@ -31,5 +36,8 @@ void setup_signal_handling();
 void new_thread(int service);
 int random_number(int min_num, int max_num);
 void* handle_client(void* arg);
+void add_client(int socket);
+void remove_client(int socket);
+void notify_all_clients(const char *msg);
 
 #endif

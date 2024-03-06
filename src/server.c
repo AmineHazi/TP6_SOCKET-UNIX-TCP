@@ -2,6 +2,9 @@
 
 char log_file_path[256]; 
 int sockfd;
+ClientNode *head = NULL; 
+pthread_mutex_t list_mutex; 
+int random;
 
 int main() {
 
@@ -20,7 +23,7 @@ int main() {
             
             mkdir(LOG_DIR, 0755);
             setup_signal_handling();
-
+            random = random_number(MIN_NUM_RAND, MAX_NUM_RAND);
             create_log_file_path();
             if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
                 perror("socket error");
@@ -67,6 +70,7 @@ int main() {
     return EXIT_SUCCESS;
 }
 
+/*Fonction pour les logs*/
 void create_log_file_path() {
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
@@ -97,12 +101,14 @@ void log_message(const char* message) {
     }
 }
 
+/*Netoyer les resource*/
 void cleanup() {
     close(sockfd);
     unlink(SERVER_SOCKET_PATH);
     log_message("Server shutdown.");
 }
 
+/*Gestion des signaux*/
 void handle_signal() {
     cleanup();
     exit(EXIT_SUCCESS);
@@ -124,6 +130,7 @@ void setup_signal_handling() {
     }
 }
 
+/*Creation du thread*/
 void new_thread(int socket) {
     int ret;
 
@@ -152,6 +159,53 @@ void new_thread(int socket) {
     }
 }
 
+
+void* handle_client(void* arg) {
+
+    int socket = *((int *)arg);
+    add_client(socket);
+    ssize_t n;
+    char buf[BUFFER_SIZE];
+
+    log_message_with_client_info("Random number for client", socket , random);
+
+    while((n = recv(socket, buf, BUFFER_SIZE - 1, 0)) > 0) {
+
+        int num = (int) strtol(buf, NULL, 10);
+
+        log_message_with_client_info("Message recieved", socket, num);
+
+        if(num == random){
+            log_message_with_client_info("Number found", socket, num);
+            const char* msg = "FOUND";
+            if(send(socket, msg, strlen(msg), 0) < 0){
+                perror("send");
+            }
+            remove_client(socket);
+            notify_all_clients("CLIENT_FOUND");
+        } else {
+            if(num < random) {
+                const char* msg = "C'est plus !";
+                if(send(socket, msg, strlen(msg), 0) < 0){
+                    perror("send");
+                }
+            } else {
+                const char* msg = "C'est moin !";
+                if(send(socket, msg, strlen(msg), 0) < 0){
+                perror("send");
+                }   
+            }
+        }
+    }
+
+    if(close(socket) == -1){
+        perror("close");
+    }
+
+    free(arg);
+    pthread_exit(NULL);
+}
+
 int random_number(int min_num, int max_num) {
     int result = 0, low_num = 0, hi_num = 0;
 
@@ -168,46 +222,49 @@ int random_number(int min_num, int max_num) {
     return result;
 }
 
-void* handle_client(void* arg) {
+void add_client(int socket) {
+    pthread_mutex_lock(&list_mutex);
+    ClientNode *newNode = malloc(sizeof(ClientNode));
+    newNode->socket = socket;
+    newNode->next = head;
+    head = newNode;
+    pthread_mutex_unlock(&list_mutex);
+}
 
-    int* socket = (int *)arg;
-    ssize_t n;
-    char buf[BUFFER_SIZE];
-    int random = random_number(MIN_NUM_RAND, MAX_NUM_RAND);
+void remove_client(int socket) {
+    pthread_mutex_lock(&list_mutex);
+    ClientNode *current = head;
+    ClientNode *prev = NULL;
 
-    log_message_with_client_info("Random number for client", *socket , random);
-
-    while((n = recv(*socket, buf, BUFFER_SIZE - 1, 0)) > 0) {
-
-        int num = (int) strtol(buf, NULL, 10);
-
-        log_message_with_client_info("Message recieved", *socket, num);
-
-        if(num == random){
-            log_message_with_client_info("Number found", *socket, num);
-            const char* msg = "FOUND";
-            if(send(*socket, msg, strlen(msg), 0) < 0){
-                perror("send");
-            }
-        } else {
-            if(num < random) {
-                const char* msg = "C'est plus !";
-                if(send(*socket, msg, strlen(msg), 0) < 0){
-                    perror("send");
-                }
+    while (current != NULL) {
+        if (current->socket == socket) {
+            if (prev == NULL) {
+                head = current->next;
             } else {
-                const char* msg = "C'est moin !";
-                if(send(*socket, msg, strlen(msg), 0) < 0){
-                perror("send");
-                }   
+                prev->next = current->next;
             }
+
+            free(current);
+            break; 
         }
+        prev = current;
+        current = current->next;
     }
 
-    if(close(*socket) == -1){
-        perror("close");
+    pthread_mutex_unlock(&list_mutex);
+}
+
+void notify_all_clients(const char *msg) {
+    pthread_mutex_lock(&list_mutex);
+    ClientNode *current = head;
+
+    while (current != NULL) {
+
+        if(send(current->socket, msg, strlen(msg), 0) == -1){
+            perror("send");
+        }
+        current = current->next;
     }
 
-    free(socket);
-    pthread_exit(NULL);
+    pthread_mutex_unlock(&list_mutex);
 }
